@@ -1,69 +1,74 @@
 ﻿using Devices.Common;
+using Divaces.Common;
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 public class Program
 {
-    public static void Main(string[] args)
+    private const int TOTAL_OBJECTS = 10000;
+    private const int PAGE_SIZE = 5;
+    private static readonly string FilePath = "devices_data.json";
+
+    public static async Task Main(string[] args)
     {
-        Console.OutputEncoding = System.Text.Encoding.UTF8; 
-        Console.WriteLine("Демонстрація роботи CRUD-сервісу з моделлю 'Девайси'");
-        Console.WriteLine("-------------------------------------------------");
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        Console.WriteLine($"--- Демонстрація Lab 2: Асинхронність та Паралелізм ({TOTAL_OBJECTS} об'єктів) ---");
 
-        var smartphoneService = new CrudService<Smartphone>();
+        var service = new ICrudServiceAsync<Smartphone>(FilePath);
 
-        var iphone = new Smartphone("Apple", "iPhone 15 Pro", 6.1, "iOS", 48, false);
-        var galaxy = new Smartphone("Samsung", "Galaxy S23 Ultra", 6.8, "Android", 200, true);
+        Console.WriteLine($"\n1. Паралельне створення {TOTAL_OBJECTS} об'єктів, захищено Lock...");
 
-        smartphoneService.Create(iphone);
-        smartphoneService.Create(galaxy);
-
-
-        Console.WriteLine("1. Об'єкти створено та додано до сервісу:");
-        smartphoneService.ReadAll().Print();
-
-
-        Console.WriteLine("2. Читання елемента за ID (iPhone):");
-        var foundPhone = smartphoneService.Read(iphone.Id);
-        if (foundPhone != null)
+        Parallel.For(0, TOTAL_OBJECTS, async i =>
         {
-            foundPhone.DisplayInfo();
-        }
-        else
+            var newPhone = Smartphone.CreateNew();
+            await service.CreateAsync(newPhone);
+        });
+
+        await Task.Delay(1000);
+
+        var initialCount = (await service.ReadAllAsync()).Count();
+        Console.WriteLine($"   -> Фактично створено об'єктів: {initialCount}");
+
+        Console.WriteLine("\n2. Статистичний аналіз цифрових значень (LINQ):");
+
+        var allData = await service.ReadAllAsync();
+
+        var minCamera = allData.Min(d => d.CameraMegapixels);
+        var maxCamera = allData.Max(d => d.CameraMegapixels);
+        var avgCamera = allData.Average(d => d.CameraMegapixels);
+
+        var minScreen = allData.Min(d => d.ScreenSizeInches);
+        var maxScreen = allData.Max(d => d.ScreenSizeInches);
+        var avgScreen = allData.Average(d => d.ScreenSizeInches);
+
+        Console.WriteLine($"   Камера (МП): Мін={minCamera}, Макс={maxCamera}, Середнє={avgCamera:F2}");
+        Console.WriteLine($"   Екран (дюйми): Мін={minScreen:F2}, Макс={maxScreen:F2}, Середнє={avgScreen:F2}");
+
+        Console.WriteLine($"\n3. Асинхронне збереження колекції у файл: {FilePath}");
+        bool saved = await service.SaveAsync();
+        Console.WriteLine($"   -> Збереження {(saved ? "УСПІШНЕ" : "НЕВДАЛЕ")}.");
+
+        Console.WriteLine($"\n4. Демонстрація пагінації (сторінка 3, розмір {PAGE_SIZE}):");
+        var page3 = await service.ReadAllAsync(3, PAGE_SIZE); 
+
+        foreach (var device in page3)
         {
-            Console.WriteLine("Смартфон не знайдено.");
+            Console.WriteLine($"   -> ID: {device.Id.ToString().Substring(0, 8)}... | {device.Manufacturer} {device.Model} | Камера: {device.CameraMegapixels} МП");
         }
-        Console.WriteLine("-------------------------------------------------");
+
+        var firstElement = allData.First();
+
+        var readElement = await service.ReadAsync(firstElement.Id);
+        Console.WriteLine($"\n5. Асинхронне читання: {readElement.Manufacturer} {readElement.Model}");
 
 
-        Console.WriteLine("3. Оновлення елемента:");
-        var newIphone = new Smartphone("Apple", "iPhone 16 Pro", 6.1, "iOS", 48, false);
-        newIphone.Id = iphone.Id; 
-        smartphoneService.Update(newIphone);
-        Console.WriteLine("Оновлений список після зміни:");
-        smartphoneService.ReadAll().Print();
+        await service.RemoveAsync(firstElement);
 
+        Console.WriteLine($"   -> Залишилося об'єктів після видалення: {(await service.ReadAllAsync()).Count()}");
 
-        Console.WriteLine("4. Видалення елемента (Galaxy):");
-        smartphoneService.Remove(galaxy);
-        Console.WriteLine("Список після видалення:");
-        smartphoneService.ReadAll().Print();
-
-        Console.WriteLine("5. Демонстрація подій та статичних членів:");
-        var myLaptop = new Laptop("Dell", "XPS 15", 15.6, "Windows", "Intel Core i7", 16);
-
-
-        Console.WriteLine($"Категорія мобільних пристроїв: {MobileDevice.Category}");
-
-
-        Console.WriteLine($"Тип пристрою: {Smartphone.GetDeviceType()}");
-
-
-        myLaptop.OnPowerOn += message => Console.WriteLine($"Подія: {message}");
-        myLaptop.PowerOn();
-
-        Console.WriteLine("-------------------------------------------------");
-        Console.WriteLine("Демонстрацію завершено. Натисніть будь-яку клавішу для виходу.");
         Console.ReadKey();
     }
 }
